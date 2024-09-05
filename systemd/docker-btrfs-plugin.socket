@@ -1,0 +1,9 @@
+[Unit]
+Description=Docker Volume Driver for BTRFS volumes
+Documentation=man:docker-btrfs-plugin(8)
+
+[Socket]
+ListenStream=/run/docker/plugins/btrfs.sock
+
+[Install]
+WantedBy=sockets.target

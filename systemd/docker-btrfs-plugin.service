@@ -1,0 +1,12 @@
+[Unit]
+Description=Docker Volume Driver for BTRFS volumes
+Documentation=man:docker-btrfs-plugin(8)
+Before=docker.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/docker/docker-btrfs-plugin
+ExecStart=/usr/libexec/docker/docker-btrfs-plugin
+
+[Install]
+WantedBy=multi-user.target
