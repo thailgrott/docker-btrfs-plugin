@@ -62,19 +62,16 @@ func (d *btrfsDriver) Create(req *volume.CreateRequest) error {
 	}
 
 	mp := getMountpoint(d.home, req.Name)
-	err := os.MkdirAll(mp, 0700)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err != nil {
-			os.RemoveAll(mp)
-		}
-	}()
 
 	// Check if snapshot option is provided
 	snap, ok := req.Options["snapshot"]
 	isSnapshot := ok && snap != ""
+
+	// Ensure the parent directory exists
+	err := os.MkdirAll(d.home, 0700)
+	if err != nil {
+		return err
+	}
 
 	if isSnapshot {
 		// Create a BTRFS snapshot
@@ -108,6 +105,7 @@ func (d *btrfsDriver) Create(req *volume.CreateRequest) error {
 	}
 	return nil
 }
+
 
 func (d *btrfsDriver) List() (*volume.ListResponse, error) {
 	d.mu.RLock()
