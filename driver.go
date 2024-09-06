@@ -171,10 +171,6 @@ func (d *btrfsDriver) Remove(req *volume.RemoveRequest) error {
 		return fmt.Errorf("Error removing volume, all snapshot destinations must be removed before removing the original volume")
 	}
 
-	if err := os.RemoveAll(getMountpoint(d.home, req.Name)); err != nil {
-		return err
-	}
-
 	cmd := exec.Command("btrfs", "subvolume", "delete", vol.MountPoint)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		d.logger.Err(fmt.Sprintf("Remove: btrfs subvolume delete error %s output %s", err, string(out)))
@@ -193,51 +189,49 @@ func (d *btrfsDriver) Path(req *volume.PathRequest) (*volume.PathResponse, error
 	return &volume.PathResponse{Mountpoint: getMountpoint(d.home, req.Name)}, nil
 }
 
-func (d *btrfsDriver) Mount(req *volume.MountRequest) (*volume.MountResponse, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+func (l *btrfsDriver) Mount(req *volume.MountRequest) (*volume.MountResponse, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 
-	vol, exists := d.volumes[req.Name]
-	if !exists {
+	// Check if the volume exists
+	if _, exists := l.volumes[req.Name]; !exists {
 		return &volume.MountResponse{}, fmt.Errorf("Unknown volume %s", req.Name)
 	}
 
-	if d.count[req.Name] == 0 {
-		device := vol.MountPoint
-		mountArgs := []string{device, vol.MountPoint}
-
-		cmd := exec.Command("mount", mountArgs...)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			d.logger.Err(fmt.Sprintf("Mount: mount error: %s output %s", err, string(out)))
-			return &volume.MountResponse{}, fmt.Errorf("Error mounting volume")
-		}
+	// Initialize the mount count if it doesn't exist
+	if _, ok := l.count[req.Name]; !ok {
+		l.count[req.Name] = 0
 	}
-	d.count[req.Name]++
-	if err := saveToDisk(d.volumes, d.count); err != nil {
+
+	// Increment the mount count
+	l.count[req.Name]++
+
+	// Save the updated mount count to disk
+	if err := saveToDisk(l.volumes, l.count); err != nil {
 		return &volume.MountResponse{}, err
 	}
-	return &volume.MountResponse{Mountpoint: getMountpoint(d.home, req.Name)}, nil
+
+	// Return the mountpoint for the volume
+	return &volume.MountResponse{Mountpoint: getMountpoint(l.home, req.Name)}, nil
 }
 
-func (d *btrfsDriver) Unmount(req *volume.UnmountRequest) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+func (l *btrfsDriver) Unmount(req *volume.UnmountRequest) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 
-	vol, exists := d.volumes[req.Name]
-	if !exists {
+	// Decrement the mount count
+	if _, ok := l.count[req.Name]; !ok {
 		return fmt.Errorf("Unknown volume %s", req.Name)
 	}
 
-	if d.count[req.Name] == 1 {
-		cmd := exec.Command("umount", vol.MountPoint)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			d.logger.Err(fmt.Sprintf("Unmount: umount error: %s output %s", err, string(out)))
-			return fmt.Errorf("Error unmounting volume")
-		}
+	l.count[req.Name]--
+	if l.count[req.Name] < 0 {
+		l.count[req.Name] = 0
 	}
-	d.count[req.Name]--
-	if err := saveToDisk(d.volumes, d.count); err != nil {
+
+	if err := saveToDisk(l.volumes, l.count); err != nil {
 		return err
 	}
+
 	return nil
 }
