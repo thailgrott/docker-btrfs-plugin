@@ -1,5 +1,4 @@
 # Installation Directories
-SYSCONFDIR ?=$(DESTDIR)/etc/docker
 SYSTEMDIR ?=$(DESTDIR)/usr/lib/systemd/system
 GOLANG=go
 BINARY ?= docker-btrfs-plugin
@@ -27,9 +26,15 @@ install-man: prepare-man
 	install -d $(MANPAGE_DIR)
 	install -m 644 $(MANPAGE_DST) $(MANPAGE_DIR)/$(MANPAGE_DST)
 
+# Initialize Go module if go.mod does not exist
+.PHONY: init-go-mod
+init-go-mod:
+	@if [ ! -f go.mod ]; then \
+		$(GOLANG) mod init docker-btrfs-plugin; \
+	fi
 
 .PHONY: btrfs-build
-btrfs-build: main.go go.mod
+btrfs-build: main.go init-go-mod go.mod
 	$(GOLANG) mod tidy
 	$(GOLANG) build -o $(BINARY) .
 
