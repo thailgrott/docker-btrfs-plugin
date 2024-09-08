@@ -155,12 +155,49 @@ func (d *btrfsDriver) Remove(req *volume.RemoveRequest) error {
 		return fmt.Errorf("Unknown volume %s", req.Name)
 	}
 
+	// Check if the volume is mounted by any container
+	if d.count[req.Name] > 0 {
+		return fmt.Errorf("Error removing volume: %s is still mounted by a container", req.Name)
+	}
+
+	// Check if the volume is a snapshot
+	if vol.Type == "Snapshot" {
+		snapshotPath := getMountpoint(d.home, req.Name)
+		if _, err := os.Stat(snapshotPath); os.IsNotExist(err) {
+			// Log the missing snapshot and clean up metadata
+			d.logger.Info(fmt.Sprintf("Snapshot %s does not exist, cleaning up metadata", req.Name))
+			delete(d.volumes, req.Name)
+			delete(d.count, req.Name)
+			if err := saveToDisk(d.volumes, d.count); err != nil {
+				return fmt.Errorf("Error saving metadata for volume %s: %v", req.Name, err)
+			}
+			return nil // Successfully handled missing snapshot, exit here
+		}
+
+		// Try to remove the BTRFS snapshot
+		cmd := exec.Command("btrfs", "subvolume", "delete", snapshotPath)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			d.logger.Err(fmt.Sprintf("Error removing BTRFS snapshot %s: %s", req.Name, string(out)))
+			return fmt.Errorf("Error removing BTRFS snapshot %s: %v", req.Name, err)
+		}
+
+		// Clean up metadata after successfully removing the snapshot
+		delete(d.count, req.Name)
+		delete(d.volumes, req.Name)
+		if err := saveToDisk(d.volumes, d.count); err != nil {
+			return fmt.Errorf("Error saving metadata for volume %s: %v", req.Name, err)
+		}
+
+		return nil // Exit after handling the snapshot deletion
+	}
+
+	// Check if the volume is an origin subvolume with snapshots
 	isOrigin := func() bool {
-		for _, vol := range d.volumes {
-			if vol.Name == req.Name {
+		for _, v := range d.volumes {
+			if v.Name == req.Name {
 				continue
 			}
-			if vol.Type == "Snapshot" && vol.Source == req.Name {
+			if v.Type == "Snapshot" && v.Source == req.Name {
 				return true
 			}
 		}
@@ -168,20 +205,23 @@ func (d *btrfsDriver) Remove(req *volume.RemoveRequest) error {
 	}()
 
 	if isOrigin {
-		return fmt.Errorf("Error removing volume, all snapshot destinations must be removed before removing the original volume")
+		return fmt.Errorf("Error removing volume %s: snapshots must be removed first", req.Name)
 	}
 
+	// Try to remove the original subvolume (non-snapshot)
 	cmd := exec.Command("btrfs", "subvolume", "delete", vol.MountPoint)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		d.logger.Err(fmt.Sprintf("Remove: btrfs subvolume delete error %s output %s", err, string(out)))
-		return fmt.Errorf("Error removing volume")
+		d.logger.Err(fmt.Sprintf("Error removing BTRFS subvolume %s: %s", req.Name, string(out)))
+		return fmt.Errorf("Error removing BTRFS subvolume %s: %v", req.Name, err)
 	}
 
+	// Clean up metadata after successfully removing the subvolume
 	delete(d.count, req.Name)
 	delete(d.volumes, req.Name)
 	if err := saveToDisk(d.volumes, d.count); err != nil {
-		return err
+		return fmt.Errorf("Error saving metadata for volume %s: %v", req.Name, err)
 	}
+
 	return nil
 }
 
