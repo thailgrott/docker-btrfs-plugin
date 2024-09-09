@@ -29,7 +29,7 @@ func main() {
 	flag.Parse()
 
 	if *flVersion {
-		fmt.Fprint(os.Stdout, "docker btrfs plugin version: 0.0.1a\n")
+		fmt.Fprint(os.Stdout, "docker btrfs plugin version: 0.0.2a\n")
 		return
 	}
 
